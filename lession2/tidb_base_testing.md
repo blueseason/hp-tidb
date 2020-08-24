@@ -28,6 +28,7 @@ Vagrant.configure("2") do |config|
   config.vm.provider "virtualbox" do |vb|
     vb.memory = "2048"
   end
+  config.disksize.size = '20GB'
 
   config.ssh.username = "devops"
   #config.ssh.password = "vagrant"
@@ -198,12 +199,20 @@ TiUP 部署集群
 ```
 tiup cluster start tidb-benchmark
 
+tiup cluster display tidb-benchmark
+
 mysql -h 10.0.100.100 -P 4000 -u root
 
 show databases;
 
 create database benchmark;
 
+create database sbtest;
+
+set global tidb_disable_txn_auto_retry = off;
+
+set global tidb_txn_mode="optimistic";
+set global tidb_txn_mode="pessimistic";
 ```
 
 ## Sysbench 测试
@@ -213,3 +222,58 @@ ubuntu 安装
 curl -s https://packagecloud.io/install/repositories/akopytov/sysbench/script.deb.sh | sudo bash
 sudo apt -y install sysbench
 ```
+
+### 测试
+受限于本地机器性能，测试在数据表大小为1W，10W的规模下依次运行oltp_point_select，oltp_update_index，oltp_read_only
+各两分钟
+
+
+```
+FATAL: mysql_drv_query() returned error 8027 (Information schema is out of date: schema failed to update in 1 lease, please make sure TiDB can connect to TiKV) 
+```
+
+## go-ycsb 测试
+
+```
+./bin/go-ycsb load mysql -P workloads/workloada -p recordcount=10000 -p mysql.host=10.0.100.100 -p mysql.port=4000 --threads 32
+```
+
+## go-tpc 测试
+```
+./bin/go-tpc tpcc -H 10.0.100.100 -P 4000 -D tpcc --warehouses 8 prepare -T 8
+```
+
+```
+./bin/go-tpc tpcc -H 10.0.100.100 -P 4000 -D tpcc --warehouses 8 run --time 2m --threads 4
+```
+
+
+destroy 错误
+
+```
+➜  ~ tiup cluster destroy tidb-benchmark
+Starting component `cluster`: /home/season/.tiup/components/cluster/v1.0.9/tiup-cluster destroy tidb-benchmark
+This operation will destroy tidb nightly cluster tidb-benchmark and its data.
+Do you want to continue? [y/N]: y
+Destroying cluster...
++ [ Serial ] - SSHKeySet: privateKey=/home/season/.tiup/storage/cluster/clusters/tidb-benchmark/ssh/id_rsa, publicKey=/home/season/.tiup/storage/cluster/clusters/tidb-benchmark/ssh/id_rsa.pub
++ [Parallel] - UserSSH: user=tidb, host=10.0.100.101
++ [Parallel] - UserSSH: user=tidb, host=10.0.100.103
++ [Parallel] - UserSSH: user=tidb, host=10.0.100.105
++ [Parallel] - UserSSH: user=tidb, host=10.0.100.101
++ [Parallel] - UserSSH: user=tidb, host=10.0.100.104
++ [Parallel] - UserSSH: user=tidb, host=10.0.100.101
++ [Parallel] - UserSSH: user=tidb, host=10.0.100.101
++ [Parallel] - UserSSH: user=tidb, host=10.0.100.100
++ [ Serial ] - StopCluster
+Stopping component alertmanager
+        Stopping instance 10.0.100.101
+
+Error: failed to stop alertmanager: failed to stop: alertmanager 10.0.100.101:9093: executor.ssh.execute_failed: Failed to execute command over SSH for 'tidb@10.0.100.101:22' {ssh_stderr: , ssh_stdout: , ssh_command: export LANG=C; PATH=$PATH:/usr/bin:/usr/sbin sudo -H -u root bash -c "systemctl daemon-reload && systemctl stop alertmanager-9093.service"}, cause: dial tcp 10.0.100.101:22: i/o timeout
+
+Verbose debug logs has been written to /home/season/logs/tiup-cluster-debug-2020-08-25-01-28-40.log.
+Error: run `/home/season/.tiup/components/cluster/v1.0.9/tiup-cluster` (wd:/home/season/.tiup/data/S8bWPEQ) failed: exit status 1
+
+```
+
+tpmC: 338.9
