@@ -1,5 +1,5 @@
-
 # TiDB Base Testing
+
 ## Base Testing 背景知识
 1. [用 TiUP 部署 TiDB 集群]( https://docs.pingcap.com/zh/tidb/stable/production-deployment-using-tiup)
 2. [TiKV 线程池优化](https://github.com/pingcap-incubator/tidb-in-action/blob/master/session4/chapter8/threadpool-optimize.md)
@@ -97,7 +97,7 @@ monitored:
 # # - PD: https://pingcap.com/docs/stable/reference/configuration/pd-server/configuration-file/
 # # All configuration items use points to represent the hierarchy, e.g:
 # #   readpool.storage.use-unified-pool
-# #      
+# #
 # # You can overwrite this configuration via the instance-level `config` field.
 
 server_configs:
@@ -192,53 +192,96 @@ TiUP 部署集群
  tiup cluster deploy tidb-benchmark nightly ./complex-mini.yaml --user devops
 
 ```
-集群拓扑截图
+
+集群节点截图:
+![tidb_cluster](https://github.com/blueseason/hp-tidb/blob/master/lession2/arch.png "tidb_cluster")
 
 
-启动TiDB集群
+启动TiDB集群, 观察一下机群状态
 ```
 tiup cluster start tidb-benchmark
 
 tiup cluster display tidb-benchmark
 
+```
+
+## Sysbench 测试
+
+### ubuntu 安装 和初始化
+
+```
+curl -s https://packagecloud.io/install/repositories/akopytov/sysbench/script.deb.sh | sudo bash
+sudo apt -y install sysbench
+```
+初始化和导入数据
+```
 mysql -h 10.0.100.100 -P 4000 -u root
 
 show databases;
-
-create database benchmark;
 
 create database sbtest;
 
 set global tidb_disable_txn_auto_retry = off;
 
+#导入前设置事务模型为乐观
 set global tidb_txn_mode="optimistic";
+#导入之后恢复
 set global tidb_txn_mode="pessimistic";
+
 ```
 
-## Sysbench 测试
-
-ubuntu 安装
-```
-curl -s https://packagecloud.io/install/repositories/akopytov/sysbench/script.deb.sh | sudo bash
-sudo apt -y install sysbench
-```
-
-### 测试
+### 测试过程
 受限于本地机器性能，测试在数据表大小为1W，10W的规模下依次运行oltp_point_select，oltp_update_index，oltp_read_only
 各两分钟
 
+![1W_QPS](https://github.com/blueseason/hp-tidb/blob/master/lession2/qps1.png "1W数据 三项测试 QPS")
+
+其中oltp_point_selelct QPS 最高，中间低谷的为 oltp_update_index测试，最后为 oltp_read_only.
+
+跑oltp_point_select和 oltp_read_only时节点监控状态类似，如下图
+
+![1W_QPS_node_load](https://github.com/blueseason/hp-tidb/blob/master/lession2/cpu1.png "1W数据 节点负载")
+
+跑oltp_update_index时节点负载状态如下
+
+![1W_QPS_node_load1](https://github.com/blueseason/hp-tidb/blob/master/lession2/cpu2.png "1W数据 oltp_update_index 节点负载")
+
+10w数据规模下，在导入数据阶段即出现下面的错误,一台tikv机器异常无法连接，测试无法进行下去
 
 ```
-FATAL: mysql_drv_query() returned error 8027 (Information schema is out of date: schema failed to update in 1 lease, please make sure TiDB can connect to TiKV) 
+FATAL: mysql_drv_query() returned error 8027 (Information schema is out of date: schema failed to update in 1 lease, please make sure TiDB can connect to TiKV)
 ```
+从节点负载监控可以看到那台tikv节点2G内存已经用满，由于在本次的测试环境几台虚拟机共用一块硬盘这比较明显的瓶颈点，硬盘读写慢,写入大量数据耗尽内存，使得tikv无法继续响应tidb的rpc请求.
+
 
 ## go-ycsb 测试
+go-ycsb workload 有a-f六个测试，基本命令如下，先导入再运行
 
 ```
 ./bin/go-ycsb load mysql -P workloads/workloada -p recordcount=10000 -p mysql.host=10.0.100.100 -p mysql.port=4000 --threads 32
+
+./bin/go-ycsb run mysql -P workloads/workloada -p recordcount=10000 -p mysql.host=10.0.100.100 -p mysql.port=4000 --threads 32
 ```
+本次测试了数据规模在1w,10w,100w下的各workload
+
+QPS图如下,前面的一段是1W数据下运行workload的负载，中间一段是导入100w数据的负载，QPS最高的一段是导入10W数据时
+![ycsb_QPS](https://github.com/blueseason/hp-tidb/blob/master/lession2/ycsb_qps.png "ycsb QPS")
+
+tidb的节点负载
+![ycsb_node_load](https://github.com/blueseason/hp-tidb/blob/master/lession2/ycsb_cpu.png "ycsb node load")
+
 
 ## go-tpc 测试
+gp-tpc是针对电商平台场景的测试，数据导入阶段需要大量的硬盘写入，warehouses 1000时大约64G读写，3个节点大约192G
+需要提前计算好个虚拟机所需硬盘大小，在vagrant中如下配置硬盘大小
+
+```
+  config.disksize.size = '40GB'
+```
+考虑机器硬盘只有500G,选择warehouse=8进行测试，并且放弃了数据读写要求更高的tpc-h测试
+
+测试命令如下
+
 ```
 ./bin/go-tpc tpcc -H 10.0.100.100 -P 4000 -D tpcc --warehouses 8 prepare -T 8
 ```
@@ -247,8 +290,27 @@ FATAL: mysql_drv_query() returned error 8027 (Information schema is out of date:
 ./bin/go-tpc tpcc -H 10.0.100.100 -P 4000 -D tpcc --warehouses 8 run --time 2m --threads 4
 ```
 
+QPS图如下
 
-destroy 错误
+![tpcc_QPS](https://github.com/blueseason/hp-tidb/blob/master/lession2/tpcc_qps.png "tpcc QPS")
+
+节点负载图如下
+
+![tpcc_load](https://github.com/blueseason/hp-tidb/blob/master/lession2/tpcc_cpu.png "tpcc load")
+
+最后测试 tpmC: 338.9
+
+
+## 结果分析
+受限于单机的原因，本测试环境有较大的局限性，结果本身没有价值，但是测试过程中的一些数据可以做略作分析
+1. 由于资源有限(CPU,Memory不够)，测试端和被测试测端未全完全隔离，存在竞争，影响结果
+2. 硬盘只有一块，在update或者写操作时，几个tikv存在竞争关系，比如在sysbench update测试QPS低很多，以及在导入10W数据集时一台tikv宕机不能提供服务，都是和此相关.正常的情况下，如果有几块硬盘，将tikv数据分区挂载到独立硬盘上，会有比较好的表现
+3. 受限于内存(2G),只能测试较小的数据集规模(1W-10W). 对于读操作测试，单台tidb已经可以到12kQPS。但是写相关的操作由于硬盘瓶颈会爆内存，QPS也很低，如果内存多些，tidb和tikv的内存可以分配(4g-8g),可以测试更大规模的数据集，QPS也会有较大改善
+4. 由于主机CPU只有6核12线程，在当前配置下，将server.grpc-concurrency设成2，rocksdb.max-background-jobs，raftdb.max-background-jobs 改为 2 可能有更好的QPS.
+5. tpc-c和tpc-h测试对于硬盘写入要求高，特别时基于OLAP的tpc-h测试，单机单硬盘的环境就不太适合了，测试中遇到多次硬盘写满节点宕机的情况
+
+
+TiUP destroy 错误
 
 ```
 ➜  ~ tiup cluster destroy tidb-benchmark
@@ -276,4 +338,3 @@ Error: run `/home/season/.tiup/components/cluster/v1.0.9/tiup-cluster` (wd:/home
 
 ```
 
-tpmC: 338.9
