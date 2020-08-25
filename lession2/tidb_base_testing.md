@@ -265,7 +265,7 @@ go-ycsb workload 有a-f六个测试，基本命令如下，先导入再运行
 本次测试了数据规模在1w,10w,100w下的各workload
 
 QPS图如下,前面的一段是1W数据下运行workload的负载，中间一段是导入100w数据的负载，QPS最高的一段是导入10W数据时
-![ycsb_QPS](https://github.com/blueseason/hp-tidb/blob/master/lession2/ycsb_qps.png "ycsb QPS")
+![ycsb_QPS](https://github.com/blueseason/hp-tidb/blob/master/lession2/ycsb2_qps.png "ycsb QPS")
 
 tidb的节点负载
 ![ycsb_node_load](https://github.com/blueseason/hp-tidb/blob/master/lession2/ycsb_cpu.png "ycsb node load")
@@ -309,32 +309,4 @@ QPS图如下
 4. 由于主机CPU只有6核12线程，在当前配置下，将server.grpc-concurrency设成2，rocksdb.max-background-jobs，raftdb.max-background-jobs 改为 2 可能有更好的QPS.
 5. tpc-c和tpc-h测试对于硬盘写入要求高，特别时基于OLAP的tpc-h测试，单机单硬盘的环境就不太适合了，测试中遇到多次硬盘写满节点宕机的情况
 
-
-TiUP destroy 错误
-
-```
-➜  ~ tiup cluster destroy tidb-benchmark
-Starting component `cluster`: /home/season/.tiup/components/cluster/v1.0.9/tiup-cluster destroy tidb-benchmark
-This operation will destroy tidb nightly cluster tidb-benchmark and its data.
-Do you want to continue? [y/N]: y
-Destroying cluster...
-+ [ Serial ] - SSHKeySet: privateKey=/home/season/.tiup/storage/cluster/clusters/tidb-benchmark/ssh/id_rsa, publicKey=/home/season/.tiup/storage/cluster/clusters/tidb-benchmark/ssh/id_rsa.pub
-+ [Parallel] - UserSSH: user=tidb, host=10.0.100.101
-+ [Parallel] - UserSSH: user=tidb, host=10.0.100.103
-+ [Parallel] - UserSSH: user=tidb, host=10.0.100.105
-+ [Parallel] - UserSSH: user=tidb, host=10.0.100.101
-+ [Parallel] - UserSSH: user=tidb, host=10.0.100.104
-+ [Parallel] - UserSSH: user=tidb, host=10.0.100.101
-+ [Parallel] - UserSSH: user=tidb, host=10.0.100.101
-+ [Parallel] - UserSSH: user=tidb, host=10.0.100.100
-+ [ Serial ] - StopCluster
-Stopping component alertmanager
-        Stopping instance 10.0.100.101
-
-Error: failed to stop alertmanager: failed to stop: alertmanager 10.0.100.101:9093: executor.ssh.execute_failed: Failed to execute command over SSH for 'tidb@10.0.100.101:22' {ssh_stderr: , ssh_stdout: , ssh_command: export LANG=C; PATH=$PATH:/usr/bin:/usr/sbin sudo -H -u root bash -c "systemctl daemon-reload && systemctl stop alertmanager-9093.service"}, cause: dial tcp 10.0.100.101:22: i/o timeout
-
-Verbose debug logs has been written to /home/season/logs/tiup-cluster-debug-2020-08-25-01-28-40.log.
-Error: run `/home/season/.tiup/components/cluster/v1.0.9/tiup-cluster` (wd:/home/season/.tiup/data/S8bWPEQ) failed: exit status 1
-
-```
 
